@@ -296,9 +296,11 @@ exports.run = async (context) => {
 
     await log.info(`Conversion de ${data.length} lignes`)
 
-    const formattedLines = [] // Contains all transformed lines
-    for (const row of data) {
+    let formattedLines = []
+    while (data.length) {
       // For each object in result tab
+
+      const row = data.shift()
 
       /** @type {any} */
       const formattedRow = {}
@@ -360,17 +362,19 @@ exports.run = async (context) => {
         }
       }
       formattedLines.push(formattedRow)
-    }
 
-    if (formattedLines.length > 0) {
-      if ((processingConfig.detectSchema && datasetSchemaChanged)) {
-        datasetSchemaChanged = false
-        await updateSchema(datasetSchema, dataset, axios, log, ws)
+      const maxBulkSize = 1000
+      if (formattedLines.length >= maxBulkSize || (data.length === 0 && formattedLines.length > 0)) {
+        if ((processingConfig.detectSchema && datasetSchemaChanged)) {
+          datasetSchemaChanged = false
+          await updateSchema(datasetSchema, dataset, axios, log, ws)
+        }
+
+        await log.info(`Envoi de ${formattedLines.length} lignes.`)
+        const bulkRes = (await axios.post(`api/v1/datasets/${dataset.id}/_bulk_lines`, formattedLines)).data
+        await log.info(`Lignes envoyées : ${JSON.stringify(bulkRes)}`)
+        formattedLines = []
       }
-
-      await log.info(`Envoi de ${formattedLines.length} lignes.`)
-      const bulkRes = (await axios.post(`api/v1/datasets/${dataset.id}/_bulk_lines`, formattedLines)).data
-      await log.info(`Lignes envoyées : ${JSON.stringify(bulkRes)}`)
     }
   }
   await log.step('Toutes les données ont été envoyées')

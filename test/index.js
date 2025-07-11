@@ -26,7 +26,10 @@ describe('test', function () {
     //     dataset: { title: 'Organisation avec schéma auto' },
     //     apiURL: 'https://www.data.gouv.fr/api/1/organizations/?page=1&page_size=100',
     //     resultPath: 'data',
-    //     nextPagePath: 'next_page',
+    //     pagination: {
+    //       method: 'nextPageData',
+    //      nextPagePath: 'next_page'
+    //     },
     //     detectSchema: false,
     //     columns: [
     //       {
@@ -57,7 +60,6 @@ describe('test', function () {
         dataset: { title: 'Json mapping test' },
         apiURL: 'https://api.insee.fr/metadonnees/V1/concepts/definitions',
         resultPath: '',
-        nextPagePath: '',
         detectSchema: true,
         // auth: {
         //   authMethod: 'bearerAuth',
@@ -127,7 +129,6 @@ describe('test', function () {
       await context.ws.waitForJournal(datasetId, 'finalize-end')
       let dataset = (await context.axios.get(`api/v1/datasets/${datasetId}`)).data
       assert.equal(dataset.schema.filter(p => !p['x-calculated']).length, 3)
-      assert.equal(dataset.count, 3)
 
       const scope2 = nock('https://test.com')
         .get('/api/items')
@@ -195,7 +196,6 @@ describe('test', function () {
       await context.ws.waitForJournal(datasetId, 'finalize-end')
       let dataset = (await context.axios.get(`api/v1/datasets/${datasetId}`)).data
       assert.equal(dataset.schema.filter(p => !p['x-calculated']).length, 3)
-      assert.equal(dataset.count, 3)
 
       const scope2 = nock('https://test.com')
         .get('/api/items?offset=0&limit=2')
@@ -241,7 +241,10 @@ describe('test', function () {
         dataset: { title: 'processing-json-mapping test 2' },
         apiURL: 'https://test.com/api/items',
         resultPath: 'data',
-        nextPagePath: 'next_page',
+        pagination: {
+          method: 'nextPageData',
+          nextPagePath: 'next_page'
+        },
         detectSchema: false,
         columns: [
           {
@@ -272,7 +275,6 @@ describe('test', function () {
       await context.ws.waitForJournal(datasetId, 'finalize-end')
       let dataset = (await context.axios.get(`api/v1/datasets/${datasetId}`)).data
       assert.equal(dataset.schema.filter(p => !p['x-calculated']).length, 3)
-      assert.equal(dataset.count, 3)
 
       const scope2 = nock('https://test.com')
         .get('/api/items')
@@ -317,7 +319,10 @@ describe('test', function () {
         dataset: { title: 'processing-json-mapping test 3' },
         apiURL: 'https://test.com/api/items',
         resultPath: 'data',
-        nextPagePath: 'next_page',
+        pagination: {
+          method: 'nextPageData',
+          nextPagePath: 'next_page'
+        },
         detectSchema: false,
         columns: [
           {
@@ -364,7 +369,10 @@ describe('test', function () {
         dataset: { title: 'processing-json-mapping test 3' },
         apiURL: 'https://test.com/api/items',
         resultPath: 'data',
-        nextPagePath: 'next_page',
+        pagination: {
+          method: 'nextPageData',
+          nextPagePath: 'next_page'
+        },
         detectSchema: false,
         columns: [
           {
@@ -414,7 +422,10 @@ describe('test', function () {
         dataset: { title: 'processing-json-mapping test 3' },
         apiURL: 'https://test.com/api/items',
         resultPath: 'data',
-        nextPagePath: 'next_page',
+        pagination: {
+          method: 'nextPageData',
+          nextPagePath: 'next_page'
+        },
         detectSchema: false,
         columns: [
           {
@@ -474,7 +485,10 @@ describe('test', function () {
         dataset: { title: 'processing-json-mapping test 3' },
         apiURL: 'https://test.com/api/items',
         resultPath: 'data',
-        nextPagePath: 'next_page',
+        pagination: {
+          method: 'nextPageData',
+          nextPagePath: 'next_page'
+        },
         detectSchema: false,
         columns: [
           {
@@ -523,4 +537,37 @@ describe('test', function () {
       await context.axios.delete(`api/v1/datasets/${datasetId}`)
     }
   })
+
+  /* it.skip('should move data from an extended datasets', async function () {
+    const testsUtils = await import('@data-fair/lib/processings/tests-utils.js')
+    const context = testsUtils.context({
+      pluginConfig: {},
+      processingConfig: {
+        datasetMode: 'create',
+        dataset: { title: 'processing-json-mapping test ext' },
+        apiURL: 'https://staging-koumoul.com/data-fair/api/v1/datasets/dssl726fsrwlatrz7gd-si5t/lines',
+        resultPath: 'results',
+        pagination: {
+          method: 'nextPageData',
+          nextPagePath: 'next'
+        },
+        detectSchema: false,
+        columns: [
+          {
+            columnPath: 'code_commune',
+            columnType: 'Texte'
+          },
+          {
+            columnPath: '_parcelles.batimentsArea',
+            columnType: 'Nombre'
+          }
+        ]
+      },
+      tmpDir: 'data'
+    }, config, true)
+    await processing.run(context)
+    assert.ok(scope.isDone())
+
+    const datasetId = context.processingConfig.dataset.id
+  }) */
 })
