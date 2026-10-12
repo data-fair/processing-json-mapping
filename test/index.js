@@ -15,6 +15,14 @@ describe('test', function () {
     assert.equal(schema.type, 'object')
   })
 
+  it('should only consider the configured origin for credentials', () => {
+    assert.equal(processing.isSameOrigin('https://test.com/api/items?page=2', 'https://test.com/api/items'), true)
+    assert.equal(processing.isSameOrigin('https://evil.com/api/items', 'https://test.com/api/items'), false)
+    assert.equal(processing.isSameOrigin('https://test.com.evil.com/api', 'https://test.com/api/items'), false)
+    assert.equal(processing.isSameOrigin('https://test.com@evil.com/api', 'https://test.com/api/items'), false)
+    assert.equal(processing.isSameOrigin('/api/items', 'https://test.com/api/items'), false)
+  })
+
   it.skip('should use oauth connection to insee API', async function () {
     this.timeout(1000000)
 

@@ -82,7 +82,7 @@ async function getPageUrl (context, linesOffset, pagesOffset, data, lines) {
   // deprecated parameter
   if (!paginationConfig && context.processingConfig.nextPagePath) {
     await context.log.warning('nextPagePath is deprecated, please use pagination configuration')
-    return data ? getValueByPath(data, context.processingConfig.nextPagePath) : url
+    return data ? resolveNextPageUrl(getValueByPath(data, context.processingConfig.nextPagePath), url) : url
   }
 
   if (!paginationConfig || paginationConfig.method === 'none') return data ? null : url
@@ -111,9 +111,32 @@ async function getPageUrl (context, linesOffset, pagesOffset, data, lines) {
       }
       return urlObj.href
     }
-    return getValueByPath(data, paginationConfig.nextPagePath)
+    return resolveNextPageUrl(getValueByPath(data, paginationConfig.nextPagePath), url)
   }
 }
+
+/**
+ * A next page link comes from the remote server: a relative link is relative to the API, never to data-fair.
+ * @param {any} next
+ * @param {string} apiURL
+ */
+function resolveNextPageUrl (next, apiURL) {
+  return next ? new URL(next, apiURL).href : null
+}
+
+/**
+ * Credentials of the configured API are only sent to its own origin.
+ * @param {string} url
+ * @param {string} apiURL
+ */
+function isSameOrigin (url, apiURL) {
+  try {
+    return new URL(url).origin === new URL(apiURL).origin
+  } catch {
+    return false
+  }
+}
+exports.isSameOrigin = isSameOrigin
 
 /**
  *
@@ -248,7 +271,8 @@ exports.run = async (context) => {
 
   // ------------------ Récupération, conversion et envoi des données ------------------
   await log.step('Récupération, conversion et envoi des données')
-  let headers = { Accept: 'application/json' }
+  const publicHeaders = { Accept: 'application/json' }
+  let headers = publicHeaders
   if (processingConfig.auth && processingConfig.auth.authMethod !== 'noAuth') {
     const authHeader = await getHeaders(processingConfig.auth, axios, log)
     headers = { ...headers, ...authHeader }
@@ -260,10 +284,14 @@ exports.run = async (context) => {
   let nextPageURL = await getPageUrl(context, linesOffset, pagesOffset)
   while (nextPageURL) {
     await log.info(`Récupération de ${nextPageURL}`)
+    const sameOrigin = isSameOrigin(nextPageURL, processingConfig.apiURL)
+    if (!sameOrigin && headers !== publicHeaders) {
+      await log.warning('La page suivante est sur un autre domaine que l\'API : elle est récupérée sans les informations d\'authentification.')
+    }
     const res = await axios({
       method: 'get',
       url: nextPageURL,
-      headers,
+      headers: sameOrigin ? headers : publicHeaders,
       timeout: 10 * 60000 // very long timeout as we don't control the API and some export logic are very slow
     })
     let data
