@@ -138,6 +138,37 @@ function isSameOrigin (url, apiURL) {
 }
 exports.isSameOrigin = isSameOrigin
 
+/** Default wait for each API request, kept from the former hard-coded value. */
+const DEFAULT_REQUEST_TIMEOUT_MINUTES = 10
+
+/** Longest delay a Node timer accepts: above it, the timer fires after 1 ms instead. */
+const MAX_TIMER_MS = 2 ** 31 - 1
+
+/**
+ * Timeout of each request to the configured API, in milliseconds, from the `requestTimeout`
+ * option (minutes). A missing or invalid value falls back to the default. The result is kept
+ * between 1 ms (axios reads 0 as "no timeout") and the longest delay a Node timer accepts.
+ * @param {number | undefined} minutes
+ * @returns {number}
+ */
+function requestTimeoutMs (minutes) {
+  const value = typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_REQUEST_TIMEOUT_MINUTES
+  return Math.min(MAX_TIMER_MS, Math.max(1, Math.round(value * 60000)))
+}
+exports.requestTimeoutMs = requestTimeoutMs
+
+/**
+ * True for the error axios throws when a request exceeds its `timeout` ("timeout of Xms
+ * exceeded", code ECONNABORTED, or ETIMEDOUT with `clarifyTimeoutError`). A network-level
+ * ETIMEDOUT ("connect ETIMEDOUT 1.2.3.4:443") is not one: raising the option would not help.
+ * @param {any} err
+ * @returns {boolean}
+ */
+function isRequestTimeout (err) {
+  return (err?.code === 'ETIMEDOUT' || err?.code === 'ECONNABORTED') && /^timeout\b/i.test(err?.message ?? '')
+}
+exports.isRequestTimeout = isRequestTimeout
+
 /**
  *
  * @param {import('./lib/types.mjs').JSONMappingProcessingContext} context
@@ -271,10 +302,11 @@ exports.run = async (context) => {
 
   // ------------------ Récupération, conversion et envoi des données ------------------
   await log.step('Récupération, conversion et envoi des données')
+  const timeout = requestTimeoutMs(processingConfig.requestTimeout)
   const publicHeaders = { Accept: 'application/json' }
   let headers = publicHeaders
   if (processingConfig.auth && processingConfig.auth.authMethod !== 'noAuth') {
-    const authHeader = await getHeaders(processingConfig.auth, axios, log)
+    const authHeader = await getHeaders(processingConfig.auth, axios, log, timeout)
     headers = { ...headers, ...authHeader }
   }
 
@@ -288,12 +320,21 @@ exports.run = async (context) => {
     if (!sameOrigin && headers !== publicHeaders) {
       await log.warning('La page suivante est sur un autre domaine que l\'API : elle est récupérée sans les informations d\'authentification.')
     }
-    const res = await axios({
-      method: 'get',
-      url: nextPageURL,
-      headers: sameOrigin ? headers : publicHeaders,
-      timeout: 10 * 60000 // very long timeout as we don't control the API and some export logic are very slow
-    })
+    let res
+    try {
+      res = await axios({
+        method: 'get',
+        url: nextPageURL,
+        headers: sameOrigin ? headers : publicHeaders,
+        // long by default as we don't control the API and some exports are very slow to compute
+        timeout
+      })
+    } catch (err) {
+      if (!isRequestTimeout(err)) throw err
+      const minutes = timeout / 60000
+      const shownMinutes = minutes.toLocaleString('fr-FR', { maximumFractionDigits: 3 })
+      throw new Error(`L'API n'a pas répondu en ${shownMinutes} minute${minutes >= 2 ? 's' : ''}. Si elle est seulement lente, augmentez « Délai d'attente des requêtes (minutes) » dans l'onglet « Paramètres » du traitement ; avec la pagination, une taille de page plus petite raccourcit aussi chaque requête.`, { cause: err })
+    }
     let data
     if (!res.data) {
       await log.warning('Aucune donnée n\'a été récupérée')

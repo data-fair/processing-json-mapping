@@ -23,6 +23,106 @@ describe('test', function () {
     assert.equal(processing.isSameOrigin('/api/items', 'https://test.com/api/items'), false)
   })
 
+  describe('request timeout', () => {
+    const axios = require('axios')
+    const dfURL = 'http://df.test'
+
+    /**
+     * Run context that needs no data-fair instance: the dataset is mocked with nock, and every
+     * request sent to the API is recorded.
+     */
+    const mockContext = (processingConfig) => {
+      const instance = axios.create({ baseURL: dfURL + '/' })
+      const apiRequests = []
+      const spy = Object.assign((cfg) => {
+        apiRequests.push(cfg)
+        return instance(cfg)
+      }, instance)
+      const noop = async () => {}
+      return {
+        apiRequests,
+        context: {
+          processingId: 'p1',
+          processingConfig: {
+            datasetMode: 'update',
+            dataset: { id: 'ds', title: 'Timeout' },
+            apiURL: 'https://test.com/api/items',
+            resultPath: 'data',
+            detectSchema: true,
+            ...processingConfig
+          },
+          axios: spy,
+          log: { step: noop, info: noop, warning: noop, error: noop, debug: noop },
+          patchConfig: noop,
+          ws: { waitForJournal: noop }
+        }
+      }
+    }
+    const nockDataset = () => nock(dfURL)
+      .get('/api/v1/datasets/ds').reply(200, { id: 'ds', title: 'Timeout', schema: [{ key: 'id', type: 'integer' }] })
+      .post('/api/v1/datasets/ds/_bulk_lines').reply(200, { nbOk: 1 })
+
+    // an earlier test that failed before reaching the API leaves its interceptors behind
+    beforeEach(() => nock.cleanAll())
+    afterEach(() => nock.cleanAll())
+
+    it('should keep 10 minutes when the option is not set', async () => {
+      const df = nockDataset()
+      const api = nock('https://test.com').get('/api/items').reply(200, { data: [{ id: 1 }] })
+      const { context, apiRequests } = mockContext({})
+      await processing.run(context)
+      assert.ok(api.isDone())
+      assert.ok(df.isDone())
+      assert.deepEqual(apiRequests.map(r => r.timeout), [10 * 60000])
+    })
+
+    it('should apply the configured timeout to every page', async () => {
+      nockDataset()
+      const api = nock('https://test.com')
+        .get('/api/items').reply(200, { data: [{ id: 1 }], next: 'https://test.com/api/items?page=2' })
+        .get('/api/items?page=2').reply(200, { data: [] })
+      const { context, apiRequests } = mockContext({
+        requestTimeout: 45,
+        pagination: { method: 'nextPageData', nextPagePath: 'next' }
+      })
+      await processing.run(context)
+      assert.ok(api.isDone())
+      assert.deepEqual(apiRequests.map(r => r.timeout), [45 * 60000, 45 * 60000])
+    })
+
+    it('should fail with a message naming the option when the API is too slow', async () => {
+      nock(dfURL).get('/api/v1/datasets/ds').reply(200, { id: 'ds', title: 'Timeout', schema: [] })
+      // hold back the whole answer, headers included, like an API still computing its export
+      // (nock's delay() sends the headers first, which axios does not report as a timeout)
+      nock('https://test.com').get('/api/items')
+        .reply(async () => { await new Promise(resolve => setTimeout(resolve, 1000)); return [200, { data: [] }] })
+      // 0.001 minute = 60 ms, below the 1 minute the form allows, to keep the test fast
+      const { context } = mockContext({ requestTimeout: 0.001 })
+      await assert.rejects(processing.run(context), (err) => {
+        assert.match(err.message, /n'a pas répondu en 0,001 minute\b/)
+        assert.match(err.message, /« Délai d'attente des requêtes \(minutes\) »/)
+        assert.equal(err.cause.code, 'ECONNABORTED')
+        return true
+      })
+    })
+
+    it('should fall back to the default on an invalid value, within the timer limits', () => {
+      assert.equal(processing.requestTimeoutMs(undefined), 600000)
+      assert.equal(processing.requestTimeoutMs(0), 600000)
+      assert.equal(processing.requestTimeoutMs(-5), 600000)
+      assert.equal(processing.requestTimeoutMs(Number.NaN), 600000)
+      assert.equal(processing.requestTimeoutMs(30), 1800000)
+      assert.equal(processing.requestTimeoutMs(0.000001), 1)
+      assert.equal(processing.requestTimeoutMs(50000), 2 ** 31 - 1)
+    })
+
+    it('should not take a network-level ETIMEDOUT for a request timeout', () => {
+      assert.equal(processing.isRequestTimeout({ code: 'ECONNABORTED', message: 'timeout of 600000ms exceeded' }), true)
+      assert.equal(processing.isRequestTimeout({ code: 'ETIMEDOUT', message: 'timeout of 600000ms exceeded' }), true)
+      assert.equal(processing.isRequestTimeout({ code: 'ETIMEDOUT', message: 'connect ETIMEDOUT 1.2.3.4:443' }), false)
+    })
+  })
+
   it.skip('should use oauth connection to insee API', async function () {
     this.timeout(1000000)
 
