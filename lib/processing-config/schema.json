@@ -347,6 +347,13 @@
             }
           ]
         },
+        "requestTimeout": {
+          "type": "number",
+          "title": "Délai d'attente des requêtes (minutes)",
+          "description": "Durée d'attente de la réponse de l'API pour chaque requête (chaque page si la pagination est active) avant l'échec de l'exécution. Augmentez-la pour une API dont l'export est long à calculer.",
+          "default": 10,
+          "minimum": 1
+        },
         "detectSchema": {
           "title": "Détecter le schéma automatiquement",
           "description": "Détecte automatiquement le shéma de sortie de l'api (Ne prends pas en charge les formats temporel)",
